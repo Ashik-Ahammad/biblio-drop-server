@@ -194,9 +194,10 @@ async function run() {
           deliveryFee,
           coverImage,
           sessionId,
+          author,
+          librarianEmail, 
         } = req.body;
 
-        // Validation
         if (!userId || !bookId || !sessionId) {
           return res
             .status(400)
@@ -215,6 +216,8 @@ async function run() {
             title: bookTitle,
             coverImage: coverImage,
             deliveryFee: parseFloat(deliveryFee),
+            author: author,
+            librarianEmail: librarianEmail,
           },
           stripeSessionId: sessionId,
           status: "Pending Delivery",
@@ -228,13 +231,32 @@ async function run() {
           { $set: { status: "Pending Delivery" } },
         );
 
-        res.status(201).json({
-          success: true,
-          message: "Order data saved and book status updated successfully",
-          orderId: orderResult.insertedId,
-        });
+        res
+          .status(201)
+          .json({ success: true, orderId: orderResult.insertedId });
       } catch (error) {
-        console.error("Order Save Error:", error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error" });
+      }
+    });
+
+    // ==========================================
+    // User Order History API
+    // ==========================================
+
+    app.get("/api/orders/user/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        const orders = await ordersCollection
+          .find({ "user.email": email })
+          .sort({ orderedAt: -1 })
+          .toArray();
+
+        res.status(200).json({ success: true, data: orders });
+      } catch (error) {
+        console.error("Error fetching user orders:", error);
         res
           .status(500)
           .json({ success: false, message: "Internal server error" });
