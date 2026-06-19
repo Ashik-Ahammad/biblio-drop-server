@@ -4,7 +4,7 @@ dns.setServers(["8.8.8.8", "8.8.4.4"]);
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
 
 // dotenv config
@@ -72,6 +72,7 @@ async function run() {
 
     const usersCollection = database.collection("user");
     const booksCollection = database.collection("books");
+    const ordersCollection = database.collection("orders");
 
     // ==========================================
     // Add New Book API (Librarian)
@@ -140,6 +141,103 @@ async function run() {
         res
           .status(500)
           .json({ success: false, message: "Error fetching books" });
+      }
+    });
+
+    // Get All Books By Id API -  Books Details Page
+    app.get("/api/books/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const book = await booksCollection.findOne(query);
+
+        if (book) {
+          res.json({ success: true, data: book });
+        } else {
+          res.status(404).json({ success: false, message: "Book not found" });
+        }
+      } catch (error) {
+        res
+          .status(500)
+          .json({ success: false, message: "Invalid ID or Server Error" });
+      }
+    });
+
+    // book order status
+    app.patch("/api/books/update-status/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { status } = req.body;
+
+        const filter = { _id: new ObjectId(id) };
+        const updateDoc = { $set: { status: status } };
+
+        const result = await booksCollection.updateOne(filter, updateDoc);
+        res.status(200).json({ success: true, result });
+      } catch (error) {
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to update status" });
+      }
+    });
+
+    // Order data post
+    app.post("/api/orders", async (req, res) => {
+      try {
+        const {
+          userId,
+          userName,
+          userEmail,
+          userRole,
+          bookId,
+          bookTitle,
+          deliveryFee,
+          coverImage,
+          sessionId,
+        } = req.body;
+
+        // Validation
+        if (!userId || !bookId || !sessionId) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Missing required fields" });
+        }
+
+        const newOrder = {
+          user: {
+            id: userId,
+            name: userName,
+            email: userEmail,
+            role: userRole,
+          },
+          book: {
+            id: new ObjectId(bookId),
+            title: bookTitle,
+            coverImage: coverImage,
+            deliveryFee: parseFloat(deliveryFee),
+          },
+          stripeSessionId: sessionId,
+          status: "Pending Delivery",
+          orderedAt: new Date(),
+        };
+
+        const orderResult = await ordersCollection.insertOne(newOrder);
+
+        await booksCollection.updateOne(
+          { _id: new ObjectId(bookId) },
+          { $set: { status: "Pending Delivery" } },
+        );
+
+        res.status(201).json({
+          success: true,
+          message: "Order data saved and book status updated successfully",
+          orderId: orderResult.insertedId,
+        });
+      } catch (error) {
+        console.error("Order Save Error:", error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error" });
       }
     });
 
