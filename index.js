@@ -322,6 +322,49 @@ async function run() {
       }
     });
 
+    // Get orders for a librarian's books
+    app.get("/api/orders/librarian/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+        const orders = await ordersCollection
+          .find({ "book.librarianEmail": email })
+          .sort({ orderedAt: -1 })
+          .toArray();
+        res.status(200).json({ success: true, data: orders });
+      } catch (error) {
+        res.status(500).json({ success: false, message: "Error fetching orders" });
+      }
+    });
+
+    // Update order status from librarian
+    app.patch("/api/orders/:id/status", async (req, res) => {
+      try {
+        const { status } = req.body;
+        const result = await ordersCollection.updateOne(
+          { _id: new ObjectId(req.params.id) },
+          { $set: { status: status } }
+        );
+        res.status(200).json({ success: true, message: "Order status updated" });
+      } catch (error) {
+        res.status(500).json({ success: false, message: "Error updating order" });
+      }
+    });
+
+    // Get ONLY the books owned by a specific librarian
+    app.get("/api/books/librarian/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+        const books = await booksCollection
+          .find({ librarianEmail: email })
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.status(200).json({ success: true, data: books });
+      } catch (error) {
+        console.error("Error fetching librarian books:", error);
+        res.status(500).json({ success: false, message: "Error fetching books" });
+      }
+    });
+
     // User Order History API
     app.get("/api/orders/user/:email", async (req, res) => {
       try {
@@ -478,6 +521,30 @@ async function run() {
       } catch (error) {
         console.error("Error fetching user reviews:", error);
         res.status(500).json({ success: false, data: [] });
+      }
+    });
+
+    // Update a review 
+    app.patch("/api/reviews/:id", async (req, res) => {
+      try {
+        const { rating, comment } = req.body;
+        const result = await reviewsCollection.updateOne(
+          { _id: new ObjectId(req.params.id) },
+          { $set: { rating, comment, updatedAt: new Date() } }
+        );
+        res.status(200).json({ success: true, message: "Review updated successfully" });
+      } catch (error) {
+        res.status(500).json({ success: false, message: "Error updating review" });
+      }
+    });
+
+    // Delete a review
+    app.delete("/api/reviews/:id", async (req, res) => {
+      try {
+        const result = await reviewsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+        res.status(200).json({ success: true, message: "Review deleted successfully" });
+      } catch (error) {
+        res.status(500).json({ success: false, message: "Error deleting review" });
       }
     });
 
