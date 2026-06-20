@@ -73,6 +73,37 @@ async function run() {
     const wishlistCollection = database.collection("wishlist");
 
     // ==========================================
+    // Admin & General Book Approvals APIs
+    // ==========================================
+
+    // Fetch all pending books for admin approval table
+    app.get("/api/books/pending", async (req, res) => {
+      try {
+        const books = await booksCollection
+          .find({ status: "Pending Approval" })
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.status(200).json({ success: true, data: books });
+      } catch (error) {
+        res.status(500).json({ success: false, message: "Error fetching pending books" });
+      }
+    });
+
+    // Approve a book (Admin changes status to Published)
+    app.patch("/api/books/:id/approve", async (req, res) => {
+      try {
+        const result = await booksCollection.updateOne(
+          { _id: new ObjectId(req.params.id) },
+          { $set: { status: "Published" } }
+        );
+        res.status(200).json({ success: true, message: "Book approved successfully" });
+      } catch (error) {
+        res.status(500).json({ success: false, message: "Error approving book" });
+      }
+    });
+
+
+    // ==========================================
     // Librarian Controls (Delete, Unpublish & Update)
     // ==========================================
 
@@ -156,7 +187,7 @@ async function run() {
             .json({ success: false, message: "Missing required fields" });
         }
 
-        // status to "Pending Approval"
+        // status strictly set to "Pending Approval" initially
         const newBook = {
           ...bookData,
           status: "Pending Approval",
@@ -183,7 +214,7 @@ async function run() {
       try {
         const books = await booksCollection
           .find({ status: "Published" })
-          .sort({ addedAt: -1 })
+          .sort({ createdAt: -1 })
           .limit(6)
           .toArray();
         res.json({ success: true, data: books });
@@ -200,6 +231,7 @@ async function run() {
         const { email, role } = req.query;
         let query = { status: "Published" };
 
+        // Handle role-based visibility
         if (role === "admin") {
           query = {};
         } else if (role === "librarian" && email) {
@@ -240,27 +272,27 @@ async function run() {
       }
     });
 
-    // Update book order status
-    app.patch("/api/books/update-status/:id", async (req, res) => {
-      try {
-        const id = req.params.id;
-        const { status } = req.body;
-
-        const filter = { _id: new ObjectId(id) };
-        const updateDoc = { $set: { status: status } };
-
-        const result = await booksCollection.updateOne(filter, updateDoc);
-        res.status(200).json({ success: true, result });
-      } catch (error) {
-        res
-          .status(500)
-          .json({ success: false, message: "Failed to update status" });
-      }
-    });
 
     // ==========================================
     // Order System APIs
     // ==========================================
+
+    // Check Duplicate Order
+    app.get("/api/orders/check-duplicate", async (req, res) => {
+      try {
+        const { email, bookId } = req.query;
+        if (!email || !bookId) return res.json({ hasOrdered: false });
+
+        const order = await ordersCollection.findOne({
+          "user.email": email,
+          "book.id": new ObjectId(bookId),
+        });
+
+        res.status(200).json({ success: true, hasOrdered: !!order });
+      } catch (error) {
+        res.status(500).json({ success: false, hasOrdered: false });
+      }
+    });
 
     // Order data post
     app.post("/api/orders", async (req, res) => {
@@ -307,10 +339,8 @@ async function run() {
 
         const orderResult = await ordersCollection.insertOne(newOrder);
 
-        await booksCollection.updateOne(
-          { _id: new ObjectId(bookId) },
-          { $set: { status: "Pending Delivery" } },
-        );
+        // Keeping inventory clean: No main book status change to "Pending Delivery"
+        // We track delivery flow solely via the Orders collection now.
 
         res
           .status(201)
@@ -366,6 +396,7 @@ async function run() {
     });
 
     // User Order History API
+ 
     app.get("/api/orders/user/:email", async (req, res) => {
       try {
         const email = req.params.email;
@@ -375,7 +406,24 @@ async function run() {
           .sort({ orderedAt: -1 })
           .toArray();
 
-        res.status(200).json({ success: true, data: orders });
+        const ordersWithCategory = [];
+
+        for (let i = 0; i < orders.length; i++) {
+          const order = orders[i];
+          const bookDetails = await booksCollection.findOne({
+            _id: new ObjectId(order.book.id)
+          });
+
+          ordersWithCategory.push({
+            ...order,
+            book: {
+              ...order.book,
+              category: bookDetails ? bookDetails.category : "Uncategorized"
+            }
+          });
+        }
+
+        res.status(200).json({ success: true, data: ordersWithCategory });
       } catch (error) {
         console.error("Error fetching user orders:", error);
         res
@@ -455,7 +503,6 @@ async function run() {
     app.get("/api/reviews/check-eligibility", async (req, res) => {
       try {
         const { email, bookId } = req.query;
-        // Checking for order and delivery status of that user
         const order = await ordersCollection.findOne({
           "user.email": email,
           "book.id": new ObjectId(bookId),
@@ -494,7 +541,7 @@ async function run() {
       }
     });
 
-    // Get all reviews written by a specific user
+    // Get all reviews written by a specific user (USING PROMISE.ALL)
     app.get("/api/reviews/user/:email", async (req, res) => {
       try {
         const email = req.params.email;
@@ -504,11 +551,10 @@ async function run() {
           .sort({ createdAt: -1 })
           .toArray();
 
+        // Resolving all promises concurrently for faster execution
         const reviewsWithBooks = await Promise.all(
           reviews.map(async (review) => {
-
             const book = await booksCollection.findOne({ _id: new ObjectId(review.bookId) });
-
             return {
               ...review,
               bookTitle: book ? book.title : "Deleted Book",
@@ -524,7 +570,7 @@ async function run() {
       }
     });
 
-    // Update a review 
+    // Update a review
     app.patch("/api/reviews/:id", async (req, res) => {
       try {
         const { rating, comment } = req.body;
