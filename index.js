@@ -73,7 +73,7 @@ async function run() {
     const wishlistCollection = database.collection("wishlist");
 
     // ==========================================
-    // Admin & General Book Approvals APIs
+    // Admin & Book Approvals APIs
     // ==========================================
 
     // Fetch all pending books for admin approval table
@@ -99,6 +99,49 @@ async function run() {
         res.status(200).json({ success: true, message: "Book approved successfully" });
       } catch (error) {
         res.status(500).json({ success: false, message: "Error approving book" });
+      }
+    });
+
+    // Admin Get All Orders
+    app.get("/api/orders", async (req, res) => {
+      try {
+        const orders = await ordersCollection.aggregate([
+          { $sort: { orderedAt: -1 } },
+
+          {
+            $lookup: {
+              from: "books",
+              localField: "book.id",
+              foreignField: "_id",
+              as: "bookDetails"
+            }
+          },
+
+          {
+            $unwind: {
+              path: "$bookDetails",
+              preserveNullAndEmptyArrays: true
+            }
+          },
+
+
+          {
+            $addFields: {
+              "book.category": { $ifNull: ["$bookDetails.category", "Uncategorized"] }
+            }
+          },
+
+          {
+            $project: {
+              bookDetails: 0
+            }
+          }
+        ]).toArray();
+
+        res.status(200).json({ success: true, data: orders });
+      } catch (error) {
+        console.error("Aggregation Error:", error);
+        res.status(500).json({ success: false, message: "Error fetching orders" });
       }
     });
 
@@ -396,7 +439,7 @@ async function run() {
     });
 
     // User Order History API
- 
+
     app.get("/api/orders/user/:email", async (req, res) => {
       try {
         const email = req.params.email;
@@ -492,6 +535,56 @@ async function run() {
         res
           .status(500)
           .json({ success: false, message: "Internal server error" });
+      }
+    });
+
+
+    // get users
+    app.get("/api/users", async (req, res) => {
+      try {
+        const users = await usersCollection.find({}).sort({ createdAt: -1 }).toArray();
+        res.status(200).json(users);
+      } catch (error) {
+        res.status(500).json({ success: false, message: "Error fetching users" });
+      }
+    });
+
+    app.patch("/api/users/role", async (req, res) => {
+      try {
+        const { userId, role } = req.body;
+
+        if (!userId || !role) {
+          return res.status(400).json({ success: false, message: "User ID and role are required" });
+        }
+
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(userId) },
+          { $set: { role: role } }
+        );
+
+        if (result.matchedCount > 0) {
+          res.status(200).json({ success: true, message: "Role updated successfully" });
+        } else {
+          res.status(404).json({ success: false, message: "User not found" });
+        }
+      } catch (error) {
+        res.status(500).json({ success: false, message: "Internal server error" });
+      }
+    });
+
+    app.delete("/api/users/:id", async (req, res) => {
+      try {
+        const result = await usersCollection.deleteOne({
+          _id: new ObjectId(req.params.id),
+        });
+
+        if (result.deletedCount > 0) {
+          res.status(200).json({ success: true, message: "User deleted successfully" });
+        } else {
+          res.status(404).json({ success: false, message: "User not found" });
+        }
+      } catch (error) {
+        res.status(500).json({ success: false, message: "Error deleting user" });
       }
     });
 
