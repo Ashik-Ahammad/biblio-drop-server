@@ -85,7 +85,9 @@ async function run() {
           .toArray();
         res.status(200).json({ success: true, data: books });
       } catch (error) {
-        res.status(500).json({ success: false, message: "Error fetching pending books" });
+        res
+          .status(500)
+          .json({ success: false, message: "Error fetching pending books" });
       }
     });
 
@@ -94,57 +96,65 @@ async function run() {
       try {
         const result = await booksCollection.updateOne(
           { _id: new ObjectId(req.params.id) },
-          { $set: { status: "Published" } }
+          { $set: { status: "Published" } },
         );
-        res.status(200).json({ success: true, message: "Book approved successfully" });
+        res
+          .status(200)
+          .json({ success: true, message: "Book approved successfully" });
       } catch (error) {
-        res.status(500).json({ success: false, message: "Error approving book" });
+        res
+          .status(500)
+          .json({ success: false, message: "Error approving book" });
       }
     });
 
     // Admin Get All Orders
     app.get("/api/orders", async (req, res) => {
       try {
-        const orders = await ordersCollection.aggregate([
-          { $sort: { orderedAt: -1 } },
+        const orders = await ordersCollection
+          .aggregate([
+            { $sort: { orderedAt: -1 } },
 
-          {
-            $lookup: {
-              from: "books",
-              localField: "book.id",
-              foreignField: "_id",
-              as: "bookDetails"
-            }
-          },
+            {
+              $lookup: {
+                from: "books",
+                localField: "book.id",
+                foreignField: "_id",
+                as: "bookDetails",
+              },
+            },
 
-          {
-            $unwind: {
-              path: "$bookDetails",
-              preserveNullAndEmptyArrays: true
-            }
-          },
+            {
+              $unwind: {
+                path: "$bookDetails",
+                preserveNullAndEmptyArrays: true,
+              },
+            },
 
+            {
+              $addFields: {
+                "book.category": {
+                  $ifNull: ["$bookDetails.category", "Uncategorized"],
+                },
+              },
+            },
 
-          {
-            $addFields: {
-              "book.category": { $ifNull: ["$bookDetails.category", "Uncategorized"] }
-            }
-          },
-
-          {
-            $project: {
-              bookDetails: 0
-            }
-          }
-        ]).toArray();
+            {
+              $project: {
+                bookDetails: 0,
+              },
+            },
+          ])
+          .toArray();
 
         res.status(200).json({ success: true, data: orders });
       } catch (error) {
         console.error("Aggregation Error:", error);
-        res.status(500).json({ success: false, message: "Error fetching orders" });
+        res
+          .status(500)
+          .json({ success: false, message: "Error fetching orders" });
       }
     });
-
 
     // ==========================================
     // Librarian Controls (Delete, Unpublish & Update)
@@ -207,12 +217,10 @@ async function run() {
         }
       } catch (error) {
         console.error("Error updating book in Express:", error);
-        res
-          .status(500)
-          .json({
-            success: false,
-            message: "Internal server error in backend",
-          });
+        res.status(500).json({
+          success: false,
+          message: "Internal server error in backend",
+        });
       }
     });
 
@@ -268,28 +276,38 @@ async function run() {
       }
     });
 
-    // Get All Books API - Browse Books Page
+    // Get All Books API - Using your specific skip variable
     app.get("/api/books", async (req, res) => {
       try {
-        const { email, role } = req.query;
-        let query = { status: "Published" };
+        const { email, role, page = 1, limit = 20 } = req.query;
+        const pageNumber = Number(page);
+        const limitNumber = Number(limit);
+        const skip = (pageNumber - 1) * limitNumber;
 
-        // Handle role-based visibility
+        let query = { status: "Published" };
         if (role === "admin") {
           query = {};
         } else if (role === "librarian" && email) {
-          query = {
-            $or: [{ status: "Published" }, { librarianEmail: email }],
-          };
+          query = { $or: [{ status: "Published" }, { librarianEmail: email }] };
         }
 
-        const books = await booksCollection
+        const totalData = await booksCollection.countDocuments(query);
+        const result = await booksCollection
           .find(query)
           .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limitNumber)
           .toArray();
-        res.status(200).json({ success: true, data: books });
+
+        res.status(200).json({
+          success: true,
+          data: result,
+          pagination: {
+            page: pageNumber,
+            totalPages: Math.ceil(totalData / limitNumber),
+          },
+        });
       } catch (error) {
-        console.error("Error fetching all books:", error);
         res
           .status(500)
           .json({ success: false, message: "Error fetching books" });
@@ -314,7 +332,6 @@ async function run() {
           .json({ success: false, message: "Invalid ID or Server Error" });
       }
     });
-
 
     // ==========================================
     // Order System APIs
@@ -405,7 +422,9 @@ async function run() {
           .toArray();
         res.status(200).json({ success: true, data: orders });
       } catch (error) {
-        res.status(500).json({ success: false, message: "Error fetching orders" });
+        res
+          .status(500)
+          .json({ success: false, message: "Error fetching orders" });
       }
     });
 
@@ -415,11 +434,15 @@ async function run() {
         const { status } = req.body;
         const result = await ordersCollection.updateOne(
           { _id: new ObjectId(req.params.id) },
-          { $set: { status: status } }
+          { $set: { status: status } },
         );
-        res.status(200).json({ success: true, message: "Order status updated" });
+        res
+          .status(200)
+          .json({ success: true, message: "Order status updated" });
       } catch (error) {
-        res.status(500).json({ success: false, message: "Error updating order" });
+        res
+          .status(500)
+          .json({ success: false, message: "Error updating order" });
       }
     });
 
@@ -434,7 +457,9 @@ async function run() {
         res.status(200).json({ success: true, data: books });
       } catch (error) {
         console.error("Error fetching librarian books:", error);
-        res.status(500).json({ success: false, message: "Error fetching books" });
+        res
+          .status(500)
+          .json({ success: false, message: "Error fetching books" });
       }
     });
 
@@ -454,15 +479,15 @@ async function run() {
         for (let i = 0; i < orders.length; i++) {
           const order = orders[i];
           const bookDetails = await booksCollection.findOne({
-            _id: new ObjectId(order.book.id)
+            _id: new ObjectId(order.book.id),
           });
 
           ordersWithCategory.push({
             ...order,
             book: {
               ...order.book,
-              category: bookDetails ? bookDetails.category : "Uncategorized"
-            }
+              category: bookDetails ? bookDetails.category : "Uncategorized",
+            },
           });
         }
 
@@ -538,14 +563,18 @@ async function run() {
       }
     });
 
-
     // get users
     app.get("/api/users", async (req, res) => {
       try {
-        const users = await usersCollection.find({}).sort({ createdAt: -1 }).toArray();
+        const users = await usersCollection
+          .find({})
+          .sort({ createdAt: -1 })
+          .toArray();
         res.status(200).json(users);
       } catch (error) {
-        res.status(500).json({ success: false, message: "Error fetching users" });
+        res
+          .status(500)
+          .json({ success: false, message: "Error fetching users" });
       }
     });
 
@@ -554,21 +583,27 @@ async function run() {
         const { userId, role } = req.body;
 
         if (!userId || !role) {
-          return res.status(400).json({ success: false, message: "User ID and role are required" });
+          return res
+            .status(400)
+            .json({ success: false, message: "User ID and role are required" });
         }
 
         const result = await usersCollection.updateOne(
           { _id: new ObjectId(userId) },
-          { $set: { role: role } }
+          { $set: { role: role } },
         );
 
         if (result.matchedCount > 0) {
-          res.status(200).json({ success: true, message: "Role updated successfully" });
+          res
+            .status(200)
+            .json({ success: true, message: "Role updated successfully" });
         } else {
           res.status(404).json({ success: false, message: "User not found" });
         }
       } catch (error) {
-        res.status(500).json({ success: false, message: "Internal server error" });
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error" });
       }
     });
 
@@ -579,12 +614,16 @@ async function run() {
         });
 
         if (result.deletedCount > 0) {
-          res.status(200).json({ success: true, message: "User deleted successfully" });
+          res
+            .status(200)
+            .json({ success: true, message: "User deleted successfully" });
         } else {
           res.status(404).json({ success: false, message: "User not found" });
         }
       } catch (error) {
-        res.status(500).json({ success: false, message: "Error deleting user" });
+        res
+          .status(500)
+          .json({ success: false, message: "Error deleting user" });
       }
     });
 
@@ -647,13 +686,15 @@ async function run() {
         // Resolving all promises concurrently for faster execution
         const reviewsWithBooks = await Promise.all(
           reviews.map(async (review) => {
-            const book = await booksCollection.findOne({ _id: new ObjectId(review.bookId) });
+            const book = await booksCollection.findOne({
+              _id: new ObjectId(review.bookId),
+            });
             return {
               ...review,
               bookTitle: book ? book.title : "Deleted Book",
-              bookImage: book ? book.coverImage : null
+              bookImage: book ? book.coverImage : null,
             };
-          })
+          }),
         );
 
         res.status(200).json({ success: true, data: reviewsWithBooks });
@@ -669,21 +710,31 @@ async function run() {
         const { rating, comment } = req.body;
         const result = await reviewsCollection.updateOne(
           { _id: new ObjectId(req.params.id) },
-          { $set: { rating, comment, updatedAt: new Date() } }
+          { $set: { rating, comment, updatedAt: new Date() } },
         );
-        res.status(200).json({ success: true, message: "Review updated successfully" });
+        res
+          .status(200)
+          .json({ success: true, message: "Review updated successfully" });
       } catch (error) {
-        res.status(500).json({ success: false, message: "Error updating review" });
+        res
+          .status(500)
+          .json({ success: false, message: "Error updating review" });
       }
     });
 
     // Delete a review
     app.delete("/api/reviews/:id", async (req, res) => {
       try {
-        const result = await reviewsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
-        res.status(200).json({ success: true, message: "Review deleted successfully" });
+        const result = await reviewsCollection.deleteOne({
+          _id: new ObjectId(req.params.id),
+        });
+        res
+          .status(200)
+          .json({ success: true, message: "Review deleted successfully" });
       } catch (error) {
-        res.status(500).json({ success: false, message: "Error deleting review" });
+        res
+          .status(500)
+          .json({ success: false, message: "Error deleting review" });
       }
     });
 
@@ -705,13 +756,11 @@ async function run() {
         if (existing) {
           // If exists, remove it
           await wishlistCollection.deleteOne({ _id: existing._id });
-          res
-            .status(200)
-            .json({
-              success: true,
-              action: "removed",
-              message: "Removed from wishlist",
-            });
+          res.status(200).json({
+            success: true,
+            action: "removed",
+            message: "Removed from wishlist",
+          });
         } else {
           // If not exists, save the book details directly
           const wishlistItem = {
@@ -724,13 +773,11 @@ async function run() {
             addedAt: new Date(),
           };
           await wishlistCollection.insertOne(wishlistItem);
-          res
-            .status(200)
-            .json({
-              success: true,
-              action: "added",
-              message: "Added to wishlist",
-            });
+          res.status(200).json({
+            success: true,
+            action: "added",
+            message: "Added to wishlist",
+          });
         }
       } catch (error) {
         console.error("Wishlist Toggle Error:", error);
