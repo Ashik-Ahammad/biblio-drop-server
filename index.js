@@ -171,6 +171,41 @@ async function run() {
       }
     });
 
+    // Get all books for admin management (Secured Admin API)
+    app.get("/api/books/admin/all", verifyToken, verifyAdmin,
+      async (req, res) => {
+        try {
+          const { page = 1, limit = 12 } = req.query;
+          const skip = (Number(page) - 1) * Number(limit);
+
+          const query = { status: { $ne: "Pending Approval" } };
+
+          const totalData = await booksCollection.countDocuments(query);
+          const result = await booksCollection
+            .find(query)
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(Number(limit))
+            .toArray();
+
+          res.status(200).json({
+            success: true,
+            data: result,
+            pagination: {
+              page: Number(page),
+              totalPages: Math.ceil(totalData / Number(limit)) || 1,
+              totalItems: totalData,
+            },
+          });
+        } catch (error) {
+          res.status(500).json({
+            success: false,
+            message: "Error fetching admin books",
+          });
+        }
+      },
+    );
+
     // Get All Users (Admin only)
     app.get("/api/users", verifyToken, verifyAdmin, async (req, res) => {
       try {
@@ -313,13 +348,11 @@ async function run() {
           createdAt: new Date(),
         };
         const result = await booksCollection.insertOne(newBook);
-        res
-          .status(201)
-          .json({
-            success: true,
-            message: "Book added pending approval",
-            insertedId: result.insertedId,
-          });
+        res.status(201).json({
+          success: true,
+          message: "Book added pending approval",
+          insertedId: result.insertedId,
+        });
       } catch (error) {
         res
           .status(500)
@@ -409,37 +442,111 @@ async function run() {
       }
     });
 
-    // Get All Books API (Public)
+   // Get All Books API (Public)
     app.get("/api/books", async (req, res) => {
       try {
-        const { email, role, page = 1, limit = 12 } = req.query;
+        const { search, category, minPrice, maxPrice, sort, availability, email, role, page = 1, limit = 12 } = req.query;
         const skip = (Number(page) - 1) * Number(limit);
-        let query = { status: "Published" };
-        if (role === "admin") query = {};
-        else if (role === "librarian" && email)
-          query = { $or: [{ status: "Published" }, { librarianEmail: email }] };
 
-        const totalData = await booksCollection.countDocuments(query);
-        const result = await booksCollection
-          .find(query)
-          .sort({ createdAt: -1 })
-          .skip(skip)
-          .limit(Number(limit))
-          .toArray();
-        res
-          .status(200)
-          .json({
-            success: true,
-            data: result,
-            pagination: {
-              page: Number(page),
-              totalPages: Math.ceil(totalData / Number(limit)),
-            },
+        //  Base matching
+        let matchStage = { status: "Published" };
+
+        if (role === "admin") {
+          matchStage = {};
+        } else if (role === "librarian" && email) {
+          matchStage = { $or: [{ status: "Published" }, { librarianEmail: email }] };
+        }
+
+        // Category Filter
+        if (category && category !== "All") {
+          matchStage.category = category;
+        }
+
+        // Price Range Filter
+        if (minPrice || maxPrice) {
+          matchStage.deliveryFee = {};
+          if (minPrice) matchStage.deliveryFee.$gte = Number(minPrice);
+          if (maxPrice) matchStage.deliveryFee.$lte = Number(maxPrice);
+        }
+
+        // Text Search
+        if (search && search.trim() !== "") {
+          matchStage = {
+            $and: [
+              matchStage,
+              {
+                $or: [
+                  { title: { $regex: search, $options: "i" } },
+                  { author: { $regex: search, $options: "i" } },
+                  { category: { $regex: search, $options: "i" } }
+                ]
+              }
+            ]
+          };
+        }
+
+        // --- AGGREGATION ---
+        let pipeline = [{ $match: matchStage }];
+
+        // Availability Filter Lookup Orders
+        if (availability === "Checked Out" || availability === "Available Only") {
+          pipeline.push({
+            $lookup: {
+              from: "orders", // Orders collection join
+              localField: "_id",
+              foreignField: "book.id",
+              as: "ordersData"
+            }
           });
+
+          if (availability === "Checked Out") {
+            // if status delivered
+            pipeline.push({
+              $match: { "ordersData": { $elemMatch: { status: "Delivered" } } }
+            });
+          } else if (availability === "Available Only") {
+            // if no delivered order
+            pipeline.push({
+              $match: { "ordersData": { $not: { $elemMatch: { status: "Delivered" } } } }
+            });
+          }
+        }
+
+        // Sorting Logic
+        let sortOption = { createdAt: -1 }; // Default Newest
+        if (sort === "oldest") sortOption = { createdAt: 1 };
+        else if (sort === "priceAsc") sortOption = { deliveryFee: 1 };
+        else if (sort === "priceDesc") sortOption = { deliveryFee: -1 };
+        else if (sort === "nameAsc") sortOption = { title: 1 };
+        else if (sort === "nameDesc") sortOption = { title: -1 };
+
+        //  Get Total Count for Pagination
+        const countPipeline = [...pipeline, { $count: "total" }];
+        const countResult = await booksCollection.aggregate(countPipeline).toArray();
+        const totalData = countResult.length > 0 ? countResult[0].total : 0;
+
+        //  Get Paginated Data
+        const dataPipeline = [
+          ...pipeline,
+          { $sort: sortOption },
+          { $skip: skip },
+          { $limit: Number(limit) },
+          { $project: { ordersData: 0 } }
+        ];
+        const result = await booksCollection.aggregate(dataPipeline).toArray();
+
+        res.status(200).json({
+          success: true,
+          data: result,
+          pagination: {
+            page: Number(page),
+            totalPages: Math.ceil(totalData / Number(limit)) || 1,
+            totalItems: totalData,
+          },
+        });
       } catch (error) {
-        res
-          .status(500)
-          .json({ success: false, message: "Error fetching books" });
+        console.error("Books API Error:", error);
+        res.status(500).json({ success: false, message: "Error fetching books" });
       }
     });
 
@@ -623,13 +730,11 @@ async function run() {
       try {
         const user = await usersCollection.findOne({ email: req.params.email });
         if (user)
-          res
-            .status(200)
-            .json({
-              success: true,
-              role: user.role,
-              isRoleSelected: user.isRoleSelected || false,
-            });
+          res.status(200).json({
+            success: true,
+            role: user.role,
+            isRoleSelected: user.isRoleSelected || false,
+          });
         else
           res.status(404).json({ success: false, message: "User not found" });
       } catch (error) {
@@ -638,8 +743,6 @@ async function run() {
           .json({ success: false, message: "Internal server error" });
       }
     });
-
-
 
     // Post a review (Secured)
     app.post("/api/reviews", verifyToken, async (req, res) => {
@@ -717,13 +820,11 @@ async function run() {
         });
         if (existing) {
           await wishlistCollection.deleteOne({ _id: existing._id });
-          res
-            .status(200)
-            .json({
-              success: true,
-              action: "removed",
-              message: "Removed from wishlist",
-            });
+          res.status(200).json({
+            success: true,
+            action: "removed",
+            message: "Removed from wishlist",
+          });
         } else {
           const wishlistItem = {
             email,
@@ -735,13 +836,11 @@ async function run() {
             addedAt: new Date(),
           };
           await wishlistCollection.insertOne(wishlistItem);
-          res
-            .status(200)
-            .json({
-              success: true,
-              action: "added",
-              message: "Added to wishlist",
-            });
+          res.status(200).json({
+            success: true,
+            action: "added",
+            message: "Added to wishlist",
+          });
         }
       } catch (error) {
         res
@@ -796,13 +895,12 @@ async function run() {
 
     console.log("BiblioDrop MongoDB Connected Successfully");
   } finally {
-    // Keep connection alive
+    // Keep connection
   }
 }
 
 run().catch(console.dir);
 
-// Root public route
 app.get("/", (req, res) => {
   res.send("BiblioDrop ~ Server is running securely");
 });
