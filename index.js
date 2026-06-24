@@ -13,9 +13,7 @@ dotenv.config();
 const app = express();
 
 // Configure CORS and JSON parsing
-app.use(
-  cors({
-    origin: [`${process.env.CLIENT_URL}`],
+app.use(cors({origin: [`${process.env.CLIENT_URL}`],
     credentials: true,
   }),
 );
@@ -57,7 +55,7 @@ const verifyToken = async (req, res, next) => {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
     const database = client.db(process.env.DB_NAME);
 
     // Database Collections
@@ -513,7 +511,7 @@ async function run() {
         }
 
         // Sorting Logic
-        let sortOption = { createdAt: -1 }; // Default Newest
+        let sortOption = { createdAt: -1 };
         if (sort === "oldest") sortOption = { createdAt: 1 };
         else if (sort === "priceAsc") sortOption = { deliveryFee: 1 };
         else if (sort === "priceDesc") sortOption = { deliveryFee: -1 };
