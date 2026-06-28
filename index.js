@@ -55,7 +55,7 @@ const verifyToken = async (req, res, next) => {
 
 async function run() {
   try {
-    // await client.connect();
+    await client.connect();
     const database = client.db(process.env.DB_NAME);
 
     // Database Collections

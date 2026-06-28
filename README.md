@@ -2,7 +2,7 @@
 
 # ⚙️ BiblioDrop – Server-Side Application
 
-[![Live Preview](https://img.shields.io/badge/Live_Preview-Visit_Now-000000?style=for-the-badge&logo=vercel)](https://biblio-drop-server-pearl.vercel.app/)
+[![Live Preview](https://img.shields.io/badge/Live_Preview-Visit_Now-000000?style=for-the-badge&logo=vercel)](https://biblio-drop-backend-server.vercel.app/)
 [![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![Express.js](https://img.shields.io/badge/Express.js-000000?style=for-the-badge&logo=express&logoColor=white)](https://expressjs.com/)
 [![MongoDB](https://img.shields.io/badge/MongoDB-4EA94B?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
