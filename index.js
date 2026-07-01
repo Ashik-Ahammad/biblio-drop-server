@@ -3,6 +3,7 @@ dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
 const express = require("express");
 const cors = require("cors");
+const { Resend } = require("resend");
 const dotenv = require("dotenv");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
@@ -10,13 +11,12 @@ const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
 // Load environment variables
 dotenv.config();
 
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 const app = express();
 
 // Configure CORS and JSON parsing
-app.use(cors({origin: [`${process.env.CLIENT_URL}`],
-    credentials: true,
-  }),
-);
+app.use(cors({ origin: [`${process.env.CLIENT_URL}`], credentials: true }));
 app.use(express.json());
 
 const port = process.env.PORT || 8000;
@@ -170,7 +170,10 @@ async function run() {
     });
 
     // Get all books for admin management (Secured Admin API)
-    app.get("/api/books/admin/all", verifyToken, verifyAdmin,
+    app.get(
+      "/api/books/admin/all",
+      verifyToken,
+      verifyAdmin,
       async (req, res) => {
         try {
           const { page = 1, limit = 12 } = req.query;
@@ -440,10 +443,21 @@ async function run() {
       }
     });
 
-   // Get All Books API (Public)
+    // Get All Books API (Public)
     app.get("/api/books", async (req, res) => {
       try {
-        const { search, category, minPrice, maxPrice, sort, availability, email, role, page = 1, limit = 12 } = req.query;
+        const {
+          search,
+          category,
+          minPrice,
+          maxPrice,
+          sort,
+          availability,
+          email,
+          role,
+          page = 1,
+          limit = 12,
+        } = req.query;
         const skip = (Number(page) - 1) * Number(limit);
 
         //  Base matching
@@ -452,7 +466,9 @@ async function run() {
         if (role === "admin") {
           matchStage = {};
         } else if (role === "librarian" && email) {
-          matchStage = { $or: [{ status: "Published" }, { librarianEmail: email }] };
+          matchStage = {
+            $or: [{ status: "Published" }, { librarianEmail: email }],
+          };
         }
 
         // Category Filter
@@ -476,10 +492,10 @@ async function run() {
                 $or: [
                   { title: { $regex: search, $options: "i" } },
                   { author: { $regex: search, $options: "i" } },
-                  { category: { $regex: search, $options: "i" } }
-                ]
-              }
-            ]
+                  { category: { $regex: search, $options: "i" } },
+                ],
+              },
+            ],
           };
         }
 
@@ -487,25 +503,30 @@ async function run() {
         let pipeline = [{ $match: matchStage }];
 
         // Availability Filter Lookup Orders
-        if (availability === "Checked Out" || availability === "Available Only") {
+        if (
+          availability === "Checked Out" ||
+          availability === "Available Only"
+        ) {
           pipeline.push({
             $lookup: {
               from: "orders", // Orders collection join
               localField: "_id",
               foreignField: "book.id",
-              as: "ordersData"
-            }
+              as: "ordersData",
+            },
           });
 
           if (availability === "Checked Out") {
             // if status delivered
             pipeline.push({
-              $match: { "ordersData": { $elemMatch: { status: "Delivered" } } }
+              $match: { ordersData: { $elemMatch: { status: "Delivered" } } },
             });
           } else if (availability === "Available Only") {
             // if no delivered order
             pipeline.push({
-              $match: { "ordersData": { $not: { $elemMatch: { status: "Delivered" } } } }
+              $match: {
+                ordersData: { $not: { $elemMatch: { status: "Delivered" } } },
+              },
             });
           }
         }
@@ -520,7 +541,9 @@ async function run() {
 
         //  Get Total Count for Pagination
         const countPipeline = [...pipeline, { $count: "total" }];
-        const countResult = await booksCollection.aggregate(countPipeline).toArray();
+        const countResult = await booksCollection
+          .aggregate(countPipeline)
+          .toArray();
         const totalData = countResult.length > 0 ? countResult[0].total : 0;
 
         //  Get Paginated Data
@@ -529,7 +552,7 @@ async function run() {
           { $sort: sortOption },
           { $skip: skip },
           { $limit: Number(limit) },
-          { $project: { ordersData: 0 } }
+          { $project: { ordersData: 0 } },
         ];
         const result = await booksCollection.aggregate(dataPipeline).toArray();
 
@@ -544,7 +567,9 @@ async function run() {
         });
       } catch (error) {
         console.error("Books API Error:", error);
-        res.status(500).json({ success: false, message: "Error fetching books" });
+        res
+          .status(500)
+          .json({ success: false, message: "Error fetching books" });
       }
     });
 
@@ -599,19 +624,6 @@ async function run() {
       }
     });
 
-    // Get all reviews for a book
-    app.get("/api/reviews/:bookId", async (req, res) => {
-      try {
-        const reviews = await reviewsCollection
-          .find({ bookId: req.params.bookId })
-          .sort({ createdAt: -1 })
-          .toArray();
-        res.status(200).json({ success: true, data: reviews });
-      } catch (error) {
-        res.status(500).json({ success: false, data: [] });
-      }
-    });
-
     // ==========================================
     // Regular User APIs (Require verifyToken)
     // ==========================================
@@ -628,44 +640,6 @@ async function run() {
         res.status(200).json({ success: true, hasOrdered: !!order });
       } catch (error) {
         res.status(500).json({ success: false, hasOrdered: false });
-      }
-    });
-
-    // Post Order Data (Secured)
-    app.post("/api/orders", verifyToken, async (req, res) => {
-      try {
-        const data = req.body;
-        if (!data.userId || !data.bookId || !data.sessionId)
-          return res
-            .status(400)
-            .json({ success: false, message: "Missing fields" });
-        const newOrder = {
-          user: {
-            id: data.userId,
-            name: data.userName,
-            email: data.userEmail,
-            role: data.userRole,
-          },
-          book: {
-            id: new ObjectId(data.bookId),
-            title: data.bookTitle,
-            coverImage: data.coverImage,
-            deliveryFee: parseFloat(data.deliveryFee),
-            author: data.author,
-            librarianEmail: data.librarianEmail,
-          },
-          stripeSessionId: data.sessionId,
-          status: "Pending Delivery",
-          orderedAt: new Date(),
-        };
-        const orderResult = await ordersCollection.insertOne(newOrder);
-        res
-          .status(201)
-          .json({ success: true, orderId: orderResult.insertedId });
-      } catch (error) {
-        res
-          .status(500)
-          .json({ success: false, message: "Internal server error" });
       }
     });
 
@@ -888,6 +862,123 @@ async function run() {
         });
       } catch (error) {
         res.status(500).json({ message: "Error fetching stats" });
+      }
+    });
+
+    // Resend Email Verification and Order Confirmation (Secured) Post Order API
+    app.post("/api/orders", verifyToken, async (req, res) => {
+      try {
+        const data = req.body;
+        if (!data.userId || !data.bookId || !data.sessionId) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Missing fields" });
+        }
+
+        const newOrder = {
+          user: {
+            id: data.userId,
+            name: data.userName,
+            email: data.userEmail,
+            role: data.userRole,
+          },
+          book: {
+            id: new ObjectId(data.bookId),
+            title: data.bookTitle,
+            coverImage: data.coverImage,
+            deliveryFee: parseFloat(data.deliveryFee),
+            author: data.author,
+            librarianEmail: data.librarianEmail,
+          },
+          stripeSessionId: data.sessionId,
+          paymentGateway: "Stripe",
+          status: "Pending Delivery",
+          orderedAt: new Date(),
+        };
+
+        const orderResult = await ordersCollection.insertOne(newOrder);
+
+        if (orderResult.insertedId) {
+          try {
+            await resend.emails.send({
+              from: "BiblioDrop <onboarding@resend.dev>",
+              to: data.userEmail,
+              subject: `Order Confirmed! Invoice #${orderResult.insertedId}`,
+              html: `
+            <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f9fafb; padding: 40px 20px;">
+  <div style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #f4f4f5;">
+
+    <div style="background-color: #10b981; padding: 35px 30px; text-align: center;">
+      <h1 style="color: #ffffff; margin: 0; font-size: 28px; letter-spacing: 1px; font-weight: bold;">BiblioDrop</h1>
+      <p style="color: #d1fae5; margin: 8px 0 0 0; font-size: 15px; letter-spacing: 0.5px;">Payment Receipt</p>
+    </div>
+
+    <div style="padding: 40px 30px;">
+
+      <div style="margin-bottom: 30px;">
+        <p style="margin: 0 0 5px 0; color: #a1a1aa; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: bold;">Receipt Number</p>
+        <p style="margin: 0; font-size: 16px; color: #18181b; font-weight: 600;">#${orderResult.insertedId}</p>
+      </div>
+
+      <table style="width: 100%; margin-bottom: 40px; border-collapse: collapse;">
+        <tr>
+          <td style="padding-bottom: 10px;">
+            <p style="margin: 0 0 5px 0; color: #a1a1aa; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: bold;">Date Paid</p>
+            <p style="margin: 0; font-size: 15px; color: #18181b; font-weight: 500;">${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</p>
+          </td>
+          <td style="padding-bottom: 10px; text-align: right;">
+            <p style="margin: 0 0 5px 0; color: #a1a1aa; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: bold;">Payment Method</p>
+            <p style="margin: 0; font-size: 15px; color: #18181b; font-weight: 500;">Card (Stripe)</p>
+          </td>
+        </tr>
+      </table>
+
+      <h3 style="color: #18181b; font-size: 16px; margin: 0 0 15px 0; border-bottom: 1px solid #e4e4e7; padding-bottom: 10px;">Order Summary</h3>
+
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+        <tr>
+          <td style="padding: 15px 0; width: 60px; vertical-align: top;">
+            <img src="${data.coverImage}" alt="${data.bookTitle}" width="50" height="75" style="display: block; width: 50px; height: 75px; object-fit: cover; border-radius: 6px; border: 1px solid #e4e4e7;" />
+          </td>
+          <td style="padding: 15px 15px; vertical-align: top;">
+            <p style="margin: 0; font-weight: 600; color: #18181b; font-size: 16px;">${data.bookTitle}</p>
+            <p style="margin: 4px 0 0 0; font-size: 14px; color: #71717a;">by ${data.author}</p>
+          </td>
+          <td style="padding: 15px 0; vertical-align: top; text-align: right;">
+            <p style="margin: 0; font-weight: 600; color: #18181b; font-size: 16px;">$${parseFloat(data.deliveryFee).toFixed(2)}</p>
+          </td>
+        </tr>
+      </table>
+
+      <div style="border-top: 1px dashed #d4d4d8; padding-top: 25px; text-align: right;">
+        <p style="margin: 0 0 10px 0; color: #71717a; font-size: 15px;">Subtotal: &nbsp;&nbsp; <span style="color: #18181b; font-weight: 500;">$${parseFloat(data.deliveryFee).toFixed(2)}</span></p>
+        <p style="margin: 0; font-size: 22px; font-weight: bold; color: #10b981;">Total Paid: &nbsp;&nbsp; $${parseFloat(data.deliveryFee).toFixed(2)}</p>
+      </div>
+    </div>
+
+    <div style="background-color: #f4f4f5; padding: 20px 30px; text-align: center; border-top: 1px solid #e4e4e7;">
+      <p style="margin: 0; color: #71717a; font-size: 13px;">Billed to <span style="font-weight: 600; color: #18181b;">${data.userName}</span> (<a href="mailto:${data.userEmail}" style="color: #10b981; text-decoration: none;">${data.userEmail}</a>)</p>
+      <p style="margin: 8px 0 0 0; color: #a1a1aa; font-size: 12px;">© ${new Date().getFullYear()} BiblioDrop. All rights reserved.</p>
+    </div>
+
+  </div>
+</div>
+          `,
+            });
+            console.log(`Invoice email successfully sent to ${data.userEmail}`);
+          } catch (emailError) {
+            console.error("Resend Email Error:", emailError);
+          }
+        }
+
+        res
+          .status(201)
+          .json({ success: true, orderId: orderResult.insertedId });
+      } catch (error) {
+        console.error("Order API Error:", error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error" });
       }
     });
 
