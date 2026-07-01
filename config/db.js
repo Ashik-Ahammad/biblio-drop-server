@@ -15,7 +15,7 @@ let database;
 
 async function connectDB() {
   if (!database) {
-    await client.connect();
+    // await client.connect();
     database = client.db(process.env.DB_NAME);
     console.log("BiblioDrop MongoDB Connected Successfully");
   }
