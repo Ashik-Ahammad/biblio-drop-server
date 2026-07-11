@@ -30,8 +30,6 @@ jobs:
         tags: |
           ${{ secrets.DOCKERHUB_USERNAME }}/bibliodrop-backend:latest
           ${{ secrets.DOCKERHUB_USERNAME }}/bibliodrop-backend:${{ github.sha }}
-        cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/bibliodrop-backend:buildcache
-        cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/bibliodrop-backend:buildcache,mode=max
 
     - name: Checkout Infra Repo
       uses: actions/checkout@v4
@@ -54,6 +52,8 @@ jobs:
         spec:
           template:
             spec:
+              imagePullSecrets:
+              - name: dockerhub-secret
               containers:
               - name: backend
                 image: ${{ secrets.DOCKERHUB_USERNAME }}/bibliodrop-backend:${{ github.sha }}
@@ -67,6 +67,5 @@ jobs:
         git add k8s/backend-deployment.yaml
         git diff-index --quiet HEAD || git commit -m "update backend image: ${{ github.sha }} [skip ci]"
         git push origin main
-
 
         
