@@ -67,5 +67,3 @@ jobs:
         git add k8s/backend-deployment.yaml
         git diff-index --quiet HEAD || git commit -m "update backend image: ${{ github.sha }} [skip ci]"
         git push origin main
-
-        
